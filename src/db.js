@@ -88,3 +88,32 @@ export async function clearRecords(storeName) {
     request.onerror = () => reject(request.error);
   });
 }
+
+export async function completeSale(sale, updatedProducts) {
+  const db = await openDatabase();
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(
+      ['products', 'sales'],
+      'readwrite'
+    );
+
+    const productStore = transaction.objectStore('products');
+    const saleStore = transaction.objectStore('sales');
+
+    updatedProducts.forEach(product => {
+      productStore.put(product);
+    });
+
+    const request = saleStore.put(sale);
+    let saleId;
+
+    request.onsuccess = () => {
+      saleId = request.result;
+    };
+
+    transaction.oncomplete = () => resolve(saleId);
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+}
