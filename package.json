@@ -3,10 +3,12 @@
   "name": "pos-scan-mobile",
   "version": "1.0.0",
   "private": true,
-  "description": "Android POS Barcode Scanner and Inventory App",
+  "description": "Android POS Barcode Scanner and Inventory Management App",
   "scripts": {
-    "android:sync": "cap sync android",
-    "android:open": "cap open android"
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "android:sync": "cap sync android"
   },
   "dependencies": {
     "@capacitor/android": "^7.4.3",
@@ -14,6 +16,8 @@
     "@capacitor-mlkit/barcode-scanning": "^7.2.0"
   },
   "devDependencies": {
-    "@capacitor/cli": "^7.4.3"
+    "@capacitor/cli": "^7.4.3",
+    "vite": "^6.3.5"
   }
 }
+
