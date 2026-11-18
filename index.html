@@ -1,0 +1,207 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>POS Scan Mobile</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,sans-serif;background:#f1f5f9;color:#172033}
+header{background:#102b46;color:white;padding:20px}
+header h2{margin:0}
+header p{margin:7px 0 0;color:#cbd5e1}
+main{padding:16px;max-width:650px;margin:auto}
+.card{background:white;padding:17px;border-radius:13px;margin-bottom:15px;box-shadow:0 2px 8px #0000000c}
+h3{margin-top:0}
+input,select,button{width:100%;padding:13px;margin:6px 0;border-radius:8px;border:1px solid #cbd5e1;font-size:15px}
+button{background:#087bca;color:white;border:0;font-weight:bold}
+button:active{opacity:.8}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.stat{background:#eaf4ff;padding:15px;border-radius:10px}
+.stat strong{font-size:22px;display:block;margin-top:8px}
+.product{padding:12px 0;border-bottom:1px solid #eee}
+.product button{width:auto;padding:9px 15px}
+.total{font-size:23px;font-weight:bold;color:#087bca}
+.small{color:#64748b;font-size:13px}
+</style>
+</head>
+<body>
+
+<header>
+<h2>POS Scan Mobile</h2>
+<p>Sales & Inventory Management</p>
+</header>
+
+<main>
+
+<div class="card">
+<h3>Dashboard</h3>
+<div class="stats">
+<div class="stat">
+Sales Today
+<strong id="sales">$0.00</strong>
+</div>
+<div class="stat">
+Products
+<strong id="count">0</strong>
+</div>
+</div>
+</div>
+
+<div class="card">
+<h3>Currency Settings</h3>
+<select id="currency">
+<option value="USD">USD ($)</option>
+<option value="SSP">SSP</option>
+</select>
+<p class="small">You can switch between USD and SSP.</p>
+</div>
+
+<div class="card">
+<h3>Add Product</h3>
+<input id="name" placeholder="Product name">
+<input id="barcode" placeholder="Barcode number">
+<input id="price" type="number" placeholder="Price" step="0.01">
+<input id="stock" type="number" placeholder="Quantity">
+<button onclick="addProduct()">Add Product</button>
+</div>
+
+<div class="card">
+<h3>Barcode Scanner</h3>
+<p class="small">Camera barcode scanning will be connected in our next development stage.</p>
+<button onclick="alert('Camera scanner will be activated in the next stage.')">Open Scanner</button>
+</div>
+
+<div class="card">
+<h3>Products</h3>
+<div id="products">No products added yet.</div>
+</div>
+
+<div class="card">
+<h3>Shopping Cart</h3>
+<div id="cart">Cart is empty.</div>
+<p class="total">Total: <span id="total">0.00</span></p>
+<button onclick="checkout()">Complete Sale</button>
+</div>
+
+<div class="card">
+<h3>Sales History</h3>
+<div id="history">No sales yet.</div>
+</div>
+
+</main>
+
+<script>
+let products=[];
+let cart=[];
+let sales=[];
+
+const currency=document.getElementById("currency");
+
+function money(amount){
+return currency.value==="USD"
+?"$"+amount.toFixed(2)
+:"SSP "+amount.toFixed(2);
+}
+
+function update(){
+document.getElementById("count").textContent=products.length;
+document.getElementById("sales").textContent=
+money(sales.reduce((sum,s)=>sum+s.total,0));
+
+document.getElementById("products").innerHTML=
+products.length ? products.map((p,i)=>`
+<div class="product">
+<strong>${p.name}</strong><br>
+<span class="small">Barcode: ${p.barcode || "None"} | Stock: ${p.stock}</span><br>
+${money(p.price)}
+<button onclick="addToCart(${i})">Add to Cart</button>
+</div>`).join(""):"No products added yet.";
+
+document.getElementById("cart").innerHTML=
+cart.length ? cart.map((item,i)=>`
+<div class="product">
+${item.name} × ${item.qty}
+<button onclick="removeItem(${i})">Remove</button>
+</div>`).join(""):"Cart is empty.";
+
+let total=cart.reduce((sum,item)=>
+sum+item.price*item.qty,0);
+
+document.getElementById("total").textContent=money(total);
+document.getElementById("history").innerHTML=
+sales.length ? sales.map(s=>
+`<p>${s.date} — ${money(s.total)}</p>`).join("")
+:"No sales yet.";
+}
+
+function addProduct(){
+let name=document.getElementById("name").value.trim();
+let barcode=document.getElementById("barcode").value.trim();
+let price=Number(document.getElementById("price").value);
+let stock=Number(document.getElementById("stock").value);
+
+if(!name || !Number.isFinite(price) || price<=0 ||
+!Number.isInteger(stock) || stock<0){
+alert("Enter a valid name, price and stock quantity.");
+return;
+}
+
+products.push({name,barcode,price,stock});
+
+document.getElementById("name").value="";
+document.getElementById("barcode").value="";
+document.getElementById("price").value="";
+document.getElementById("stock").value="";
+update();
+}
+
+function addToCart(i){
+if(products[i].stock<=0){
+alert("Out of stock!");
+return;
+}
+let existing=cart.find(item=>item.name===products[i].name);
+if(existing){
+existing.qty++;
+}else{
+cart.push({...products[i],qty:1});
+}
+products[i].stock--;
+update();
+}
+
+function removeItem(i){
+let item=cart[i];
+let product=products.find(p=>p.name===item.name);
+if(product) product.stock+=item.qty;
+cart.splice(i,1);
+update();
+}
+
+function checkout(){
+if(!cart.length){
+alert("Your cart is empty.");
+return;
+}
+let total=cart.reduce((sum,item)=>
+sum+item.price*item.qty,0);
+
+sales.push({
+total,
+date:new Date().toLocaleString(),
+currency:currency.value
+});
+
+cart=[];
+update();
+alert("Sale completed successfully!");
+}
+
+currency.addEventListener("change",update);
+update();
+</script>
+
+</body>
+</html>
