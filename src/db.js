@@ -89,6 +89,7 @@ export async function clearRecords(storeName) {
   });
 }
 
+
 export async function completeSale(sale, updatedProducts) {
   const db = await openDatabase();
 
@@ -116,4 +117,77 @@ export async function completeSale(sale, updatedProducts) {
     transaction.onerror = () => reject(transaction.error);
     transaction.onabort = () => reject(transaction.error);
   });
- }
+}
+import { getRecords, saveRecord, completeSale } from './db.js';
+
+async function addToCart(product) {
+  const existing = state.cart.find(item => item.id === product.id);
+  const reserved = existing ? existing.qty : 0;
+
+  if (product.stock <= reserved) {
+    alert('Not enough stock available.');
+    return;
+  }
+
+  if (existing) {
+    existing.qty++;
+  } else {
+    state.cart.push({
+      id: product.id,
+      name: product.name,
+      price: product.price,
+      qty: 1
+    });
+  }
+
+  render();
+}
+
+async function removeFromCart(index) {
+  state.cart.splice(index, 1);
+  render();
+}
+
+async function checkout() {
+  if (!state.cart.length) {
+    alert('Your shopping cart is empty.');
+    return;
+  }
+
+  const updatedProducts = state.products.map(product => {
+    const item = state.cart.find(p => p.id === product.id);
+
+    return item
+      ? { ...product, stock: product.stock - item.qty }
+      : product;
+  });
+
+  if (updatedProducts.some(p => p.stock < 0)) {
+    alert('Insufficient stock. Please review your cart.');
+    return;
+  }
+
+  const total = state.cart.reduce(
+    (sum, item) => sum + item.price * item.qty, 0
+  );
+
+  const sale = {
+    total,
+    currency: state.currency,
+    date: new Date().toLocaleString(),
+    createdAt: new Date().toISOString(),
+    items: state.cart.map(item => ({ ...item }))
+  };
+
+  try {
+    sale.id = await completeSale(sale, updatedProducts);
+    state.products = updatedProducts;
+    state.sales.unshift(sale);
+    state.cart = [];
+    render();
+    alert('Sale completed successfully!');
+  } catch (error) {
+    alert('Sale failed. Your stock has not been deducted.');
+    throw error;
+  }
+}
