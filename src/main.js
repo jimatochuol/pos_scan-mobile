@@ -1,30 +1,174 @@
 
 import './style.css';
+import { getRecords, saveRecord } from './db.js';
+import { startScanner } from './scanner.js';
 
 const state = {
-  products: JSON.parse(localStorage.getItem('pos_products') || '[]'),
+  products: [],
+  sales: [],
   cart: [],
-  sales: JSON.parse(localStorage.getItem('pos_sales') || '[]'),
-  currency: localStorage.getItem('pos_currency') || 'USD'
+  currency: localStorage.getItem('pos_currency') || 'USD',
+  busy: false
 };
 
 const app = document.querySelector('#app');
 
-function save() {
-  localStorage.setItem('pos_products', JSON.stringify(state.products));
-  localStorage.setItem('pos_sales', JSON.stringify(state.sales));
-  localStorage.setItem('pos_currency', state.currency);
+function money(amount) {
+  return state.currency === 'USD'
+    ? '$' + Number(amount).toFixed(2)
+    : 'SSP ' + Number(amount).toFixed(2);
 }
 
-function money(value) {
-  return state.currency === 'USD'
-    ? '$' + Number(value).toFixed(2)
-    : 'SSP ' + Number(value).toFixed(2);
+function escapeHTML(value) {
+  return String(value).replace(/[&<>"']/g, char => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  })[char]);
+}
+
+async function loadData() {
+  state.products = await getRecords('products');
+  state.sales = await getRecords('sales');
+}
+
+async function addProduct() {
+  const name = document.querySelector('#productName').value.trim();
+  const barcode = document.querySelector('#productBarcode').value.trim();
+  const price = Number(document.querySelector('#productPrice').value);
+  const stock = Number(document.querySelector('#productStock').value);
+
+  if (!name || !Number.isFinite(price) || price <= 0 ||
+      !Number.isInteger(stock) || stock < 0) {
+    alert('Enter a valid product name, price and stock quantity.');
+    return;
+  }
+
+  if (barcode && state.products.some(p => p.barcode === barcode)) {
+    alert('This barcode already exists.');
+    return;
+  }
+
+  const product = { name, barcode, price, stock };
+  product.id = await saveRecord('products', product);
+
+  state.products.push(product);
+  render();
+}
+
+async function changeStock(product, amount) {
+  product.stock += amount;
+  await saveRecord('products', product);
+}
+
+async function addToCart(product) {
+  if (product.stock <= 0) {
+    alert('This product is out of stock.');
+    return;
+  }
+
+  const existing = state.cart.find(item => item.id === product.id);
+
+  if (existing) {
+    existing.qty++;
+  } else {
+    state.cart.push({
+      id: product.id,
+      name: product.name,
+      price: product.price,
+      qty: 1
+    });
+  }
+
+  await changeStock(product, -1);
+  render();
+}
+
+async function removeFromCart(index) {
+  const item = state.cart[index];
+  const product = state.products.find(p => p.id === item.id);
+
+  if (product) {
+    await changeStock(product, item.qty);
+  }
+
+  state.cart.splice(index, 1);
+  render();
+}
+
+async function checkout() {
+  if (!state.cart.length) {
+    alert('Your shopping cart is empty.');
+    return;
+  }
+
+  const total = state.cart.reduce(
+    (sum, item) => sum + item.price * item.qty, 0
+  );
+
+  const sale = {
+    total,
+    currency: state.currency,
+    date: new Date().toLocaleString(),
+    createdAt: new Date().toISOString(),
+    items: state.cart.map(item => ({ ...item }))
+  };
+
+  sale.id = await saveRecord('sales', sale);
+
+  state.sales.unshift(sale);
+  state.cart = [];
+
+  render();
+  alert('Sale completed successfully!');
+}
+
+async function scanProduct() {
+  if (state.busy) return;
+
+  state.busy = true;
+  const status = document.querySelector('#scanStatus');
+  status.textContent = 'Opening camera...';
+
+  try {
+    const barcode = await startScanner();
+
+    if (!barcode) {
+      status.textContent = 'No barcode detected. Try again.';
+      return;
+    }
+
+    const product = state.products.find(
+      p => p.barcode === barcode
+    );
+
+    if (!product) {
+      document.querySelector('#productBarcode').value = barcode;
+      status.textContent = 'New barcode detected. Enter product details to register it.';
+      document.querySelector('#productName').focus();
+      return;
+    }
+
+    await addToCart(product);
+    status.textContent = 'Scanned: ' + product.name;
+
+  } catch (error) {
+    console.error(error);
+    status.textContent = error.message || 'Scanner could not start.';
+    alert(status.textContent);
+  } finally {
+    state.busy = false;
+  }
 }
 
 function render() {
+  const today = new Date().toDateString();
+
   const totalSales = state.sales
-    .filter(s => s.currency === state.currency)
+    .filter(s => s.currency === state.currency &&
+      new Date(s.createdAt).toDateString() === today)
     .reduce((sum, s) => sum + s.total, 0);
 
   const cartTotal = state.cart.reduce(
@@ -55,12 +199,13 @@ function render() {
           <option value="USD" ${state.currency === 'USD' ? 'selected' : ''}>USD ($)</option>
           <option value="SSP" ${state.currency === 'SSP' ? 'selected' : ''}>SSP</option>
         </select>
+        <p class="small">Changing currency changes the display only. It does not convert stored prices.</p>
       </section>
 
       <section class="card">
         <h3>Add New Product</h3>
         <input id="productName" placeholder="Product name">
-        <input id="productBarcode" placeholder="Barcode">
+        <input id="productBarcode" placeholder="Barcode number">
         <input id="productPrice" type="number" min="0" step="0.01" placeholder="Price">
         <input id="productStock" type="number" min="0" step="1" placeholder="Stock quantity">
         <button id="addProduct">Save Product</button>
@@ -69,11 +214,11 @@ function render() {
       <section class="card">
         <h3>Barcode Scanner</h3>
         <button id="scanButton">Open Camera Scanner</button>
-        <p id="scanStatus">Camera scanning setup coming next.</p>
+        <p id="scanStatus" class="small">Ready to scan products.</p>
       </section>
 
       <section class="card">
-        <h3>Products</h3>
+        <h3>Products & Inventory</h3>
         <div id="productList"></div>
       </section>
 
@@ -92,119 +237,90 @@ function render() {
   `;
 
   document.querySelector('#productList').innerHTML =
-    state.products.map((p, i) => `
+    state.products.map(p => `
       <div class="product">
         <strong>${escapeHTML(p.name)}</strong>
+        <p>Barcode: ${escapeHTML(p.barcode || 'Not registered')}</p>
         <p>${money(p.price)} | Stock: ${p.stock}</p>
-        <button data-add="${i}" ${p.stock < 1 ? 'disabled' : ''}>Add to Cart</button>
+        <button data-add="${p.id}" ${p.stock <= 0 ? 'disabled' : ''}>Add to Cart</button>
       </div>
-    `).join('') || '<p>No products yet.</p>';
+    `).join('') || '<p>No products added yet.</p>';
 
   document.querySelector('#cartList').innerHTML =
-    state.cart.map((p, i) => `
+    state.cart.map((item, index) => `
       <div class="product">
-        ${escapeHTML(p.name)} × ${p.qty}
-        <button data-remove="${i}">Remove</button>
+        <strong>${escapeHTML(item.name)}</strong>
+        <p>${item.qty} × ${money(item.price)}</p>
+        <button data-remove="${index}">Remove</button>
       </div>
-    `).join('') || '<p>Cart is empty.</p>';
+    `).join('') || '<p>Your cart is empty.</p>';
 
   document.querySelector('#salesHistory').innerHTML =
     state.sales.map(s => `
-      <p>${escapeHTML(s.date)} — ${s.currency} ${s.total.toFixed(2)}</p>
-    `).join('') || '<p>No sales recorded.</p>';
+      <div class="product">
+        <strong>${escapeHTML(s.date)}</strong>
+        <p>${s.currency === 'USD' ? '$' : 'SSP '}${s.total.toFixed(2)}</p>
+      </div>
+    `).join('') || '<p>No sales recorded yet.</p>';
 
-  document.querySelector('#currency').onchange = e => {
-    state.currency = e.target.value;
-    save();
+  document.querySelector('#currency').onchange = event => {
+    state.currency = event.target.value;
+    localStorage.setItem('pos_currency', state.currency);
     render();
   };
 
-  document.querySelector('#addProduct').onclick = () => {
-    const name = document.querySelector('#productName').value.trim();
-    const barcode = document.querySelector('#productBarcode').value.trim();
-    const price = Number(document.querySelector('#productPrice').value);
-    const stock = Number(document.querySelector('#productStock').value);
-
-    if (!name || !Number.isFinite(price) || price <= 0 ||
-        !Number.isInteger(stock) || stock < 0) {
-      alert('Enter a valid name, price and stock quantity.');
-      return;
+  document.querySelector('#addProduct').onclick = async () => {
+    try {
+      await addProduct();
+    } catch (error) {
+      alert('Could not save product: ' + error.message);
     }
-
-    if (barcode && state.products.some(p => p.barcode === barcode)) {
-      alert('This barcode already exists.');
-      return;
-    }
-
-    state.products.push({ name, barcode, price, stock });
-    save();
-    render();
   };
 
   document.querySelectorAll('[data-add]').forEach(button => {
-    button.onclick = () => {
-      const p = state.products[Number(button.dataset.add)];
-      const existing = state.cart.find(item => item.barcode === p.barcode &&
-        item.name === p.name);
-
-      if (p.stock <= 0) return alert('Out of stock.');
-
-      if (existing) existing.qty++;
-      else state.cart.push({ ...p, qty: 1 });
-
-      p.stock--;
-      save();
-      render();
+    button.onclick = async () => {
+      try {
+        const product = state.products.find(
+          p => p.id === Number(button.dataset.add)
+        );
+        if (product) await addToCart(product);
+      } catch (error) {
+        alert('Could not update stock: ' + error.message);
+      }
     };
   });
 
   document.querySelectorAll('[data-remove]').forEach(button => {
-    button.onclick = () => {
-      const item = state.cart[Number(button.dataset.remove)];
-      const product = state.products.find(p =>
-        p.name === item.name && p.barcode === item.barcode
-      );
-
-      if (product) product.stock += item.qty;
-      state.cart.splice(Number(button.dataset.remove), 1);
-      save();
-      render();
+    button.onclick = async () => {
+      try {
+        await removeFromCart(Number(button.dataset.remove));
+      } catch (error) {
+        alert('Could not remove product: ' + error.message);
+      }
     };
   });
 
-  document.querySelector('#checkout').onclick = () => {
-    if (!state.cart.length) return alert('Cart is empty.');
+  document.querySelector('#checkout').onclick = async () => {
+    try {
+      await checkout();
+    } catch (error) {
+      alert('Sale could not be saved: ' + error.message);
+    }
+  };
 
-    const total = state.cart.reduce(
-      (sum, p) => sum + p.price * p.qty, 0
-    );
+  document.querySelector('#scanButton').onclick = scanProduct;
+}
 
-    state.sales.unshift({
-      total,
-      currency: state.currency,
-      date: new Date().toLocaleString()
-    });
+async function startApp() {
+  app.innerHTML = '<main><div class="card">Loading POS database...</div></main>';
 
-    state.cart = [];
-    save();
+  try {
+    await loadData();
     render();
-    alert('Sale completed successfully!');
-  };
-
-  document.querySelector('#scanButton').onclick = () => {
-    document.querySelector('#scanStatus').textContent =
-      'Camera scanner will be connected in the scanner module.';
-  };
+  } catch (error) {
+    console.error(error);
+    app.innerHTML = '<main><div class="card">Unable to open local database. Please restart the application.</div></main>';
+  }
 }
 
-function escapeHTML(value) {
-  return String(value).replace(/[&<>"']/g, char => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;'
-  })[char]);
-}
-
-render();
+startApp();
