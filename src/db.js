@@ -116,4 +116,4 @@ export async function completeSale(sale, updatedProducts) {
     transaction.onerror = () => reject(transaction.error);
     transaction.onabort = () => reject(transaction.error);
   });
-}
+ }
