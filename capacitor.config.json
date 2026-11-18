@@ -1,0 +1,20 @@
+
+{
+  "appId": "com.jimato.posscan",
+  "appName": "POS Scan Mobile",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "plugins": {
+    "MLKitBarcodeScanning": {
+      "formats": [
+        "QR_CODE",
+        "EAN_13",
+        "EAN_8",
+        "UPC_A",
+        "UPC_E",
+        "CODE_128",
+        "CODE_39"
+      ]
+    }
+  }
+}
